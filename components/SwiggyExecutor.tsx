@@ -39,7 +39,13 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
   const [steps, setSteps] = useState<Step[]>([]);
   const [restaurants, setRestaurants] = useState<Record<string, unknown>[]>([]);
   const [slots, setSlots] = useState<Record<string, unknown>[]>([]);
-  const [cart, setCart] = useState<{ addressId: string; itemCount: number; billTotal?: string } | null>(null);
+  const [cart, setCart] = useState<{
+    addressId: string;
+    address?: string;
+    itemCount: number;
+    total?: string;
+    items?: Array<{ name: string; qty: number; mrp?: number }>;
+  } | null>(null);
   const [selectedRestaurant, setSelectedRestaurant] = useState<Record<string, unknown> | null>(null);
   const [addressList, setAddressList] = useState<mcp.SwiggyAddress[]>([]);
   const [successMsg, setSuccessMsg] = useState("");
@@ -120,10 +126,20 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
         const cartData = await mcp.getInstamartCart(addressId) as Record<string, unknown>;
         setStep("cart", "done");
 
+        const addrDetails = cartData?.selectedAddressDetails as Record<string, unknown> | undefined;
+        const rawItems = (cartData?.items as Array<Record<string, unknown>>) ?? [];
         setCart({
           addressId,
-          itemCount: cartItems.length,
-          billTotal: cartData?.billTotal as string | undefined,
+          address: addrDetails
+            ? `${addrDetails.flatNo ?? ""}, ${addrDetails.area ?? ""}, ${addrDetails.city ?? ""}`.replace(/^,\s*/, "")
+            : undefined,
+          itemCount: rawItems.length || cartItems.length,
+          total: cartData?.cartTotalAmount as string | undefined,
+          items: rawItems.map((i) => ({
+            name: (i.itemName ?? "Item") as string,
+            qty: (i.quantity ?? 1) as number,
+            mrp: i.mrp as number | undefined,
+          })),
         });
         setPhase("review-cart");
       } catch (err) {
@@ -230,6 +246,12 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
   const handleRestaurantSelect = async (restaurant: Record<string, unknown>) => {
     setSelectedRestaurant(restaurant);
     setStep("select", "done");
+
+    if (option.type === "order") {
+      window.open("https://www.swiggy.com", "_blank");
+      onClose();
+      return;
+    }
 
     if (option.type === "dineout") {
       appendStep({ id: "slots", label: "Checking available slots", status: "loading" });
@@ -402,19 +424,41 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
           {/* Review cart */}
           {phase === "review-cart" && cart && (
             <div className="mt-2">
-              <div className="bg-swiggy-light-gray rounded-2xl p-4 mb-4 border border-swiggy-border">
-                <p className="text-sm font-bold text-swiggy-dark">
-                  {cart.itemCount} item{cart.itemCount > 1 ? "s" : ""} added to cart
-                </p>
-                {cart.billTotal && (
-                  <p className="text-xs text-swiggy-gray mt-1">
-                    Total: ₹{cart.billTotal}
-                  </p>
-                )}
-                <p className="text-xs text-swiggy-gray mt-2">
-                  Cart is ready in Instamart, place it here or open the app.
-                </p>
-              </div>
+              {cart.address && (
+                <div className="flex items-start gap-2 mb-3 px-3 py-2 bg-swiggy-green-light rounded-xl">
+                  <span className="text-sm mt-0.5">📍</span>
+                  <p className="text-xs text-swiggy-dark leading-relaxed">{cart.address}</p>
+                </div>
+              )}
+
+              {cart.items && cart.items.length > 0 ? (
+                <div className="rounded-2xl overflow-hidden border border-swiggy-border mb-4">
+                  <div className="flex px-3 py-2 bg-swiggy-light-gray text-xs font-bold text-swiggy-gray uppercase tracking-wide">
+                    <span className="flex-1">Item</span>
+                    <span className="w-8 text-center">Qty</span>
+                    <span className="w-14 text-right">Price</span>
+                  </div>
+                  {cart.items.map((item, i) => (
+                    <div key={i} className="flex items-center px-3 py-2.5 border-t border-swiggy-border/60 bg-white">
+                      <span className="flex-1 text-xs text-swiggy-dark leading-snug pr-2">{item.name}</span>
+                      <span className="w-8 text-center text-xs text-swiggy-gray">{item.qty}</span>
+                      <span className="w-14 text-right text-xs font-semibold text-swiggy-dark">
+                        {item.mrp ? `₹${item.mrp}` : "—"}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between items-center px-3 py-3 border-t border-swiggy-border bg-swiggy-light-gray">
+                    <span className="text-sm font-bold text-swiggy-dark">Total</span>
+                    <span className="text-base font-extrabold text-swiggy-orange">{cart.total ?? `${cart.itemCount} items`}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-swiggy-light-gray rounded-2xl p-4 mb-4 border border-swiggy-border">
+                  <p className="text-sm font-bold text-swiggy-dark">{cart.itemCount} item{cart.itemCount > 1 ? "s" : ""} in cart</p>
+                  {cart.total && <p className="text-base font-extrabold text-swiggy-orange mt-1">{cart.total}</p>}
+                </div>
+              )}
+
               <button
                 onClick={handleCheckout}
                 className="w-full bg-swiggy-orange text-white py-4 rounded-2xl font-extrabold text-base mb-3"
@@ -422,10 +466,7 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
                 Place Instamart Order →
               </button>
               <button
-                onClick={() => {
-                  window.open("https://www.swiggy.com/instamart", "_blank");
-                  onClose();
-                }}
+                onClick={() => { window.open("https://www.swiggy.com/instamart", "_blank"); onClose(); }}
                 className="w-full bg-swiggy-light-gray text-swiggy-dark py-4 rounded-2xl font-bold border border-swiggy-border"
               >
                 Open Instamart →
@@ -495,10 +536,8 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
           {phase === "success" && (
             <div className="text-center py-10">
               <div className="text-5xl mb-4">✅</div>
-              <p className="text-base font-extrabold text-swiggy-dark mb-2">
-                Done!
-              </p>
-              <p className="text-sm text-swiggy-gray mb-8">{successMsg}</p>
+              <p className="text-base font-extrabold text-swiggy-dark mb-2">Done!</p>
+              <p className="text-sm text-swiggy-gray mb-6">{successMsg}</p>
               <button
                 onClick={onClose}
                 className="w-full bg-swiggy-orange text-white py-4 rounded-2xl font-extrabold text-base"
