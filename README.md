@@ -6,6 +6,12 @@ DinnerOS is an AI-powered dinner decision app built on top of **Swiggy's MCP (Mo
 
 ---
 
+## Demo link:
+
+https://drive.google.com/file/d/1BP_jZxPieeX9RTJEoPSCFkt3xveIC7BZ/view?usp=sharing
+
+---
+
 ## What it does
 
 1. **AI Decision Engine** — Claude (via OpenRouter) analyzes your pantry items, recent meals, available time, energy level, and budget to recommend 3 dinner options ranked by relevance. Options are categorised as cook at home, food delivery, grocery delivery (Instamart), or dineout.
