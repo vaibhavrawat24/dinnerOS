@@ -36,53 +36,97 @@ export async function callMCP(
 
   const data = await res.json();
 
-  // Parse MCP JSON-RPC response envelope
-  if (data?.result?.content?.[0]?.type === "text") {
-    try {
-      return JSON.parse(data.result.content[0].text);
-    } catch {
-      return data.result.content[0].text;
-    }
+  // isError flag in result means the MCP tool returned an error
+  if (data?.result?.isError) {
+    const errText = (data.result.content?.[0]?.text as string) ?? "MCP error";
+    throw new Error(errText.split("\n")[0].trim());
   }
+
+  // Prefer structuredContent when non-empty — it has machine-readable IDs
+  const structured = data?.result?.structuredContent;
+  if (structured && typeof structured === "object" && Object.keys(structured).length > 0) {
+    return structured;
+  }
+
+  // Fall back to text content
+  if (data?.result?.content?.[0]?.type === "text") {
+    const text = data.result.content[0].text as string;
+    try { return JSON.parse(text); }
+    catch { return text; }
+  }
+
   if (data?.result) return data.result;
-  if (data?.error) throw new Error(data.error.message || "MCP error");
+  if (data?.error) throw new Error((data.error as { message?: string }).message || "MCP error");
   return data;
+}
+
+const ADDR_ID_KEY = "dinnerOS_selectedAddressId";
+const ADDR_LABEL_KEY = "dinnerOS_selectedAddressLabel";
+
+export interface SwiggyAddress {
+  id: string;
+  label: string;
+  addressText: string;
+}
+
+export function getSavedAddress(): SwiggyAddress | null {
+  if (typeof window === "undefined") return null;
+  const id = localStorage.getItem(ADDR_ID_KEY);
+  if (!id) return null;
+  return { id, label: localStorage.getItem(ADDR_LABEL_KEY) ?? "Address", addressText: "" };
+}
+
+export function saveAddress(addr: SwiggyAddress): void {
+  localStorage.setItem(ADDR_ID_KEY, addr.id);
+  localStorage.setItem(ADDR_LABEL_KEY, addr.label);
+}
+
+export function clearSavedAddress(): void {
+  localStorage.removeItem(ADDR_ID_KEY);
+  localStorage.removeItem(ADDR_LABEL_KEY);
+}
+
+function parseAddressText(text: string): SwiggyAddress[] {
+  const addresses: SwiggyAddress[] = [];
+  for (const line of text.split("\n")) {
+    const m = line.match(/^\d+\.\s*\[([^\]]+)\][^:]*:\s*(.+?)\s*\(ID:\s*([^)\s]+)\)/);
+    if (m) addresses.push({ label: m[1].trim(), addressText: m[2].trim(), id: m[3].trim() });
+  }
+  return addresses;
+}
+
+export async function getDeliveryAddresses(): Promise<SwiggyAddress[]> {
+  const result = await callMCP("food", "get_addresses", {});
+
+  const normalize = (a: Record<string, unknown>): SwiggyAddress => ({
+    id: ((a.id ?? a.addressId ?? a.addressid ?? "") as string),
+    label: ((a.label ?? a.name ?? a.tag ?? "Address") as string),
+    addressText: ((a.address ?? a.fullAddress ?? a.addressLine ?? "") as string),
+  });
+
+  if (Array.isArray(result)) {
+    return (result as Record<string, unknown>[]).map(normalize).filter(a => a.id);
+  }
+  if (result && typeof result === "object") {
+    const obj = result as Record<string, unknown>;
+    const list = (obj.addresses ?? obj.data) as Record<string, unknown>[] | undefined;
+    if (Array.isArray(list) && list.length > 0) return list.map(normalize).filter(a => a.id);
+  }
+  if (typeof result === "string") return parseAddressText(result);
+  return [];
 }
 
 // Typed helpers used by SwiggyExecutor
 
 export async function getDeliveryAddress(): Promise<Record<string, unknown> | null> {
-  const result = await callMCP("food", "get_addresses", {});
+  // Use user's chosen address if cached
+  const saved = getSavedAddress();
+  if (saved) return { id: saved.id, addressId: saved.id, label: saved.label };
 
-  // Structured: array of address objects
-  if (Array.isArray(result) && result.length > 0) {
-    return result[0] as Record<string, unknown>;
-  }
-
-  // Structured: { addresses: [...] }
-  if (result && typeof result === "object") {
-    const list = ((result as Record<string, unknown>).addresses as unknown[]) ?? [];
-    if (list.length > 0) return list[0] as Record<string, unknown>;
-  }
-
-  // Text: "Found N saved addresses...\n1. [label] Name: address text (ID: xxx)"
-  if (typeof result === "string") {
-    // Extract first ID
-    const idMatch = result.match(/\(ID:\s*([^)\s]+)\)/);
-    if (!idMatch) return null;
-    const id = idMatch[1].trim();
-
-    // Try to extract label + address for display
-    const lineMatch = result.match(/1\.\s*\[([^\]]+)\][^:]+:\s*([^(]+)/);
-    return {
-      id,
-      addressId: id,
-      label: lineMatch?.[1]?.trim() ?? "Saved address",
-      address: lineMatch?.[2]?.trim() ?? "",
-    };
-  }
-
-  return null;
+  // Fetch first address as fallback
+  const addresses = await getDeliveryAddresses();
+  if (addresses.length === 0) return null;
+  return { id: addresses[0].id, addressId: addresses[0].id, label: addresses[0].label };
 }
 
 export async function searchRestaurants(
@@ -105,18 +149,18 @@ export async function searchProducts(
 }
 
 export async function updateInstamartCart(
-  items: Array<{ productId: string; variantId: string; quantity: number }>,
+  items: Array<{ spinId: string; quantity: number }>,
   addressId: string
 ): Promise<unknown> {
-  return callMCP("im", "update_cart", { items, addressId });
+  return callMCP("im", "update_cart", { items, selectedAddressId: addressId });
 }
 
 export async function getInstamartCart(addressId: string): Promise<unknown> {
-  return callMCP("im", "get_cart", { addressId });
+  return callMCP("im", "get_cart", { selectedAddressId: addressId });
 }
 
 export async function checkoutInstamart(addressId: string): Promise<unknown> {
-  return callMCP("im", "checkout", { addressId });
+  return callMCP("im", "checkout", { selectedAddressId: addressId });
 }
 
 export async function searchDineoutRestaurants(

@@ -21,6 +21,7 @@ interface Step {
 type Phase =
   | "auth-check"
   | "auth-needed"
+  | "pick-address"
   | "running"
   | "select-restaurant"
   | "select-slot"
@@ -40,6 +41,7 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
   const [slots, setSlots] = useState<Record<string, unknown>[]>([]);
   const [cart, setCart] = useState<{ addressId: string; itemCount: number; billTotal?: string } | null>(null);
   const [selectedRestaurant, setSelectedRestaurant] = useState<Record<string, unknown> | null>(null);
+  const [addressList, setAddressList] = useState<mcp.SwiggyAddress[]>([]);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -77,26 +79,34 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
         const addressId = (address.id || address.addressId) as string;
         setStep("addr", "done");
 
-        const cartItems: { productId: string; variantId: string; quantity: number }[] = [];
+        const cartItems: { spinId: string; quantity: number }[] = [];
 
         for (const item of opt.missing) {
           setStep(`item-${item}`, "loading");
           try {
             const results = await mcp.searchProducts(item, addressId);
-            const list = Array.isArray(results)
-              ? results
-              : ((results as Record<string, unknown>)?.products as unknown[]) || [];
-            const product = list[0] as Record<string, unknown> | undefined;
-            if (product) {
+            // structuredContent returns { products: [...] }
+            const productList = (
+              Array.isArray(results)
+                ? results
+                : ((results as Record<string, unknown>)?.products as unknown[]) ?? []
+            ) as Array<{
+              inStock?: boolean;
+              isAvail?: boolean;
+              variations?: Array<{ spinId: string; isInStockAndAvailable?: boolean }>;
+            }>;
+
+            let spinId: string | null = null;
+            for (const p of productList) {
+              const variation =
+                p.variations?.find((v) => v.isInStockAndAvailable !== false) ??
+                p.variations?.[0];
+              if (variation?.spinId) { spinId = variation.spinId; break; }
+            }
+
+            if (spinId) {
               setStep(`item-${item}`, "done");
-              cartItems.push({
-                productId: (product.id || product.productId) as string,
-                variantId: (
-                  product.variantId ||
-                  (product.variants as Record<string, unknown>[])?.[0]?.id
-                ) as string,
-                quantity: 1,
-              });
+              cartItems.push({ spinId, quantity: 1 });
             } else {
               setStep(`item-${item}`, "error");
             }
@@ -203,11 +213,18 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
   }, [option, runInstamartFlow, runFoodFlow, runDineoutFlow]);
 
   useEffect(() => {
-    if (isAuthenticated()) {
-      runFlow();
-    } else {
-      setPhase("auth-needed");
-    }
+    if (!isAuthenticated()) { setPhase("auth-needed"); return; }
+    if (mcp.getSavedAddress()) { runFlow(); return; }
+    // No address cached — load list so user can pick
+    setPhase("pick-address");
+    mcp.getDeliveryAddresses()
+      .then(setAddressList)
+      .catch(() => { setErrorMsg("Could not load your saved addresses"); setPhase("error"); });
+  }, [runFlow]);
+
+  const handleAddressPick = useCallback((addr: mcp.SwiggyAddress) => {
+    mcp.saveAddress(addr);
+    runFlow();
   }, [runFlow]);
 
   const handleRestaurantSelect = async (restaurant: Record<string, unknown>) => {
@@ -309,6 +326,37 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
             </div>
           )}
 
+          {/* Address picker */}
+          {phase === "pick-address" && (
+            <div>
+              <p className="text-xs font-bold text-swiggy-gray uppercase tracking-widest mb-1">
+                Deliver to
+              </p>
+              <p className="text-sm text-swiggy-gray mb-4">
+                Pick a delivery address for this order
+              </p>
+              {addressList.length === 0 ? (
+                <div className="flex justify-center py-10"><Spinner /></div>
+              ) : (
+                <div className="space-y-2">
+                  {addressList.map((addr) => (
+                    <button
+                      key={addr.id}
+                      onClick={() => handleAddressPick(addr)}
+                      className="w-full text-left bg-swiggy-light-gray rounded-2xl p-4 border border-swiggy-border active:bg-swiggy-border transition-colors flex items-center justify-between"
+                    >
+                      <div className="flex-1 min-w-0 pr-2">
+                        <p className="text-sm font-bold text-swiggy-dark">{addr.label}</p>
+                        <p className="text-xs text-swiggy-gray mt-0.5 truncate">{addr.addressText}</p>
+                      </div>
+                      <span className="text-swiggy-orange font-bold text-lg flex-shrink-0">→</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Auth needed */}
           {phase === "auth-needed" && (
             <div className="text-center py-10">
@@ -356,19 +404,31 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
             <div className="mt-2">
               <div className="bg-swiggy-light-gray rounded-2xl p-4 mb-4 border border-swiggy-border">
                 <p className="text-sm font-bold text-swiggy-dark">
-                  {cart.itemCount} item{cart.itemCount > 1 ? "s" : ""} ready
+                  {cart.itemCount} item{cart.itemCount > 1 ? "s" : ""} added to cart
                 </p>
                 {cart.billTotal && (
                   <p className="text-xs text-swiggy-gray mt-1">
                     Total: ₹{cart.billTotal}
                   </p>
                 )}
+                <p className="text-xs text-swiggy-gray mt-2">
+                  Cart is ready in Instamart, place it here or open the app.
+                </p>
               </div>
               <button
                 onClick={handleCheckout}
-                className="w-full bg-swiggy-orange text-white py-4 rounded-2xl font-extrabold text-base"
+                className="w-full bg-swiggy-orange text-white py-4 rounded-2xl font-extrabold text-base mb-3"
               >
                 Place Instamart Order →
+              </button>
+              <button
+                onClick={() => {
+                  window.open("https://www.swiggy.com/instamart", "_blank");
+                  onClose();
+                }}
+                className="w-full bg-swiggy-light-gray text-swiggy-dark py-4 rounded-2xl font-bold border border-swiggy-border"
+              >
+                Open Instamart →
               </button>
             </div>
           )}
@@ -455,7 +515,22 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
               <p className="text-sm font-bold text-swiggy-dark mb-2">
                 Something went wrong
               </p>
-              <p className="text-xs text-swiggy-gray mb-8">{errorMsg}</p>
+              <p className="text-xs text-swiggy-gray mb-6">{errorMsg}</p>
+              {errorMsg.toLowerCase().includes("address") || errorMsg.toLowerCase().includes("serviceable") ? (
+                <button
+                  onClick={() => {
+                    mcp.clearSavedAddress();
+                    setAddressList([]);
+                    setPhase("pick-address");
+                    mcp.getDeliveryAddresses()
+                      .then(setAddressList)
+                      .catch(() => { setErrorMsg("Could not load addresses"); });
+                  }}
+                  className="w-full bg-swiggy-orange text-white py-4 rounded-2xl font-extrabold text-base mb-3"
+                >
+                  Change delivery address
+                </button>
+              ) : null}
               <button
                 onClick={onClose}
                 className="w-full bg-swiggy-light-gray text-swiggy-dark py-4 rounded-2xl font-bold border border-swiggy-border"

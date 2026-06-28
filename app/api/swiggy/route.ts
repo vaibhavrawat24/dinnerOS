@@ -40,13 +40,19 @@ async function parseMCPResponse(res: Response): Promise<{ ok: boolean; status: n
         try { lastData = JSON.parse(line.slice(5).trim()); } catch { /* skip */ }
       }
     }
-    console.log("[MCP SSE raw]", JSON.stringify(lastData).slice(0, 500));
+    const d = lastData as Record<string, unknown> | null;
+    const dResult = (d?.result ?? {}) as Record<string, unknown>;
+    const dText = ((dResult.content as {text?:string}[])?.[0]?.text) ?? "";
+    console.log("[MCP SSE text]", dText.slice(0, 200));
+    console.log("[MCP SSE structured]", JSON.stringify(dResult.structuredContent ?? {}).slice(0, 800));
     return { ok: true, status: 200, data: lastData, text };
   }
 
   try {
-    const data = JSON.parse(text);
-    console.log("[MCP JSON raw]", JSON.stringify(data).slice(0, 500));
+    const data = JSON.parse(text) as Record<string, unknown>;
+    const result = data?.result as Record<string, unknown> | undefined;
+    console.log("[MCP text]", String((result?.content as {text?:string}[])?.[0]?.text ?? "").slice(0, 200));
+    console.log("[MCP structured]", JSON.stringify(result?.structuredContent ?? {}).slice(0, 800));
     return { ok: true, status: 200, data, text };
   } catch {
     return { ok: true, status: 200, data: text, text };
