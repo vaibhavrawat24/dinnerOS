@@ -2,6 +2,17 @@ import { getToken } from "./swiggy-auth";
 
 type MCPServer = "food" | "im" | "dineout";
 
+export async function listMCPTools(server: MCPServer): Promise<unknown> {
+  const token = getToken();
+  if (!token) throw new Error("Not authenticated with Swiggy");
+  const res = await fetch("/api/swiggy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ server, listTools: true, token }),
+  });
+  return res.json();
+}
+
 export async function callMCP(
   server: MCPServer,
   tool: string,
@@ -42,10 +53,36 @@ export async function callMCP(
 
 export async function getDeliveryAddress(): Promise<Record<string, unknown> | null> {
   const result = await callMCP("food", "get_addresses", {});
-  const list = Array.isArray(result)
-    ? result
-    : ((result as Record<string, unknown>)?.addresses as unknown[]) || [];
-  return (list[0] as Record<string, unknown>) ?? null;
+
+  // Structured: array of address objects
+  if (Array.isArray(result) && result.length > 0) {
+    return result[0] as Record<string, unknown>;
+  }
+
+  // Structured: { addresses: [...] }
+  if (result && typeof result === "object") {
+    const list = ((result as Record<string, unknown>).addresses as unknown[]) ?? [];
+    if (list.length > 0) return list[0] as Record<string, unknown>;
+  }
+
+  // Text: "Found N saved addresses...\n1. [label] Name: address text (ID: xxx)"
+  if (typeof result === "string") {
+    // Extract first ID
+    const idMatch = result.match(/\(ID:\s*([^)\s]+)\)/);
+    if (!idMatch) return null;
+    const id = idMatch[1].trim();
+
+    // Try to extract label + address for display
+    const lineMatch = result.match(/1\.\s*\[([^\]]+)\][^:]+:\s*([^(]+)/);
+    return {
+      id,
+      addressId: id,
+      label: lineMatch?.[1]?.trim() ?? "Saved address",
+      address: lineMatch?.[2]?.trim() ?? "",
+    };
+  }
+
+  return null;
 }
 
 export async function searchRestaurants(

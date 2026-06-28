@@ -2,6 +2,7 @@ import type { SwiggyAuth } from "./types";
 
 const AUTH_KEY = "dinnerOS_swiggyAuth";
 const PKCE_KEY = "dinnerOS_pkce";
+const CLIENT_ID_KEY = "dinnerOS_clientId";
 
 export function isAuthenticated(): boolean {
   if (typeof window === "undefined") return false;
@@ -39,6 +40,7 @@ export function saveAuth(accessToken: string): void {
 export function clearAuth(): void {
   localStorage.removeItem(AUTH_KEY);
   sessionStorage.removeItem(PKCE_KEY);
+  sessionStorage.removeItem(CLIENT_ID_KEY);
 }
 
 async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
@@ -61,11 +63,26 @@ async function generatePKCE(): Promise<{ verifier: string; challenge: string }> 
 
 export async function startOAuthFlow(): Promise<void> {
   const { verifier, challenge } = await generatePKCE();
-  sessionStorage.setItem(PKCE_KEY, verifier);
-
   const redirectUri = `${window.location.origin}/auth/callback`;
+
+  // Step 1: Dynamic Client Registration to get client_id
+  const regRes = await fetch("/api/swiggy/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ redirectUri }),
+  });
+
+  if (!regRes.ok) throw new Error("Swiggy client registration failed");
+  const { client_id } = await regRes.json();
+
+  // Step 2: Persist verifier + client_id for the callback
+  sessionStorage.setItem(PKCE_KEY, verifier);
+  sessionStorage.setItem(CLIENT_ID_KEY, client_id);
+
+  // Step 3: Redirect to Swiggy's authorize page
   const params = new URLSearchParams({
     response_type: "code",
+    client_id,
     code_challenge: challenge,
     code_challenge_method: "S256",
     scope: "mcp:tools",
@@ -77,7 +94,8 @@ export async function startOAuthFlow(): Promise<void> {
 
 export async function handleOAuthCallback(code: string): Promise<boolean> {
   const verifier = sessionStorage.getItem(PKCE_KEY);
-  if (!verifier) return false;
+  const clientId = sessionStorage.getItem(CLIENT_ID_KEY);
+  if (!verifier || !clientId) return false;
 
   try {
     const res = await fetch("/api/swiggy/token", {
@@ -86,6 +104,7 @@ export async function handleOAuthCallback(code: string): Promise<boolean> {
       body: JSON.stringify({
         code,
         code_verifier: verifier,
+        client_id: clientId,
         redirect_uri: `${window.location.origin}/auth/callback`,
       }),
     });
@@ -95,6 +114,7 @@ export async function handleOAuthCallback(code: string): Promise<boolean> {
     if (!access_token) return false;
     saveAuth(access_token);
     sessionStorage.removeItem(PKCE_KEY);
+    sessionStorage.removeItem(CLIENT_ID_KEY);
     return true;
   } catch {
     return false;

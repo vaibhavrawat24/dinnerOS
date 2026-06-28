@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
   try {
-    const { code, code_verifier, redirect_uri } = await req.json();
+    const { code, code_verifier, client_id, redirect_uri } = await req.json();
 
     if (!code || !code_verifier || !redirect_uri) {
       return NextResponse.json(
@@ -11,15 +11,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const params: Record<string, string> = {
+      grant_type: "authorization_code",
+      code,
+      code_verifier,
+      redirect_uri,
+    };
+    if (client_id) params.client_id = client_id;
+
     const res = await fetch("https://mcp.swiggy.com/auth/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        code_verifier,
-        redirect_uri,
-      }),
+      body: new URLSearchParams(params),
     });
 
     if (!res.ok) {

@@ -81,7 +81,7 @@ export default function ContextSheet({ onSubmit }: Props) {
           Tonight&apos;s plan
         </h2>
         <p className="text-sm text-swiggy-gray mb-6">
-          Tell us your situation — takes 5 seconds
+          Tell us your situation - takes 5 seconds
         </p>
 
         <ChipGroup
