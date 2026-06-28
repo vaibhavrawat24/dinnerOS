@@ -96,11 +96,19 @@ export default function Home() {
       {/* Header */}
       <header className="bg-white border-b border-swiggy-border px-4 py-3 sticky top-0 z-10">
         <div className="max-w-md mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-extrabold text-swiggy-dark tracking-tight leading-none">
-              dinner<span className="text-swiggy-orange">OS</span>
-            </h1>
-            <AddressBar />
+          <div className="flex items-center gap-2.5">
+            <img
+              src="/logo.svg"
+              alt="DinnerOS"
+              loading="eager"
+              className="w-9 h-9 rounded-xl flex-shrink-0"
+            />
+            <div>
+              <h1 className="text-xl font-extrabold text-swiggy-dark tracking-tight leading-none">
+                dinner<span className="text-swiggy-orange">OS</span>
+              </h1>
+              <AddressBar />
+            </div>
           </div>
           <Link
             href="/pantry"

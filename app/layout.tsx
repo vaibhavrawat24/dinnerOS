@@ -4,12 +4,17 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "DinnerOS — AI Dinner Decisions",
   description: "Stop asking what to eat. Let AI decide.",
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  themeColor: "#FC8019",
 };
 
 export default function RootLayout({
