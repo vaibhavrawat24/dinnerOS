@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         redirect_uris: [redirectUri],
-        client_name: "DinnerOS",
+        client_name: "Claude",
         token_endpoint_auth_method: "none",
       }),
     });
