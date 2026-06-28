@@ -46,7 +46,6 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
     total?: string;
     items?: Array<{ name: string; qty: number; mrp?: number }>;
   } | null>(null);
-  const [selectedRestaurant, setSelectedRestaurant] = useState<Record<string, unknown> | null>(null);
   const [addressList, setAddressList] = useState<mcp.SwiggyAddress[]>([]);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -236,7 +235,6 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
   }, [runFlow]);
 
   const handleRestaurantSelect = async (restaurant: Record<string, unknown>) => {
-    setSelectedRestaurant(restaurant);
     setStep("select", "done");
 
     if (option.type === "order") {
@@ -250,14 +248,22 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
       setPhase("running");
       try {
         const restaurantId = (restaurant.id || restaurant.restaurantId) as string;
-        const slotsData = await mcp.getDineoutSlots(restaurantId);
-        const list = (
-          Array.isArray(slotsData)
-            ? slotsData
-            : ((slotsData as Record<string, unknown>)?.slots as unknown[]) || []
-        ) as Record<string, unknown>[];
+        const savedAddr = mcp.getSavedAddress();
+        let lat = savedAddr?.lat;
+        let lng = savedAddr?.lng;
+        if (!lat || !lng) {
+          try {
+            const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+              navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+            );
+            lat = pos.coords.latitude;
+            lng = pos.coords.longitude;
+          } catch { /* proceed without coords */ }
+        }
+        const slotsText = await mcp.getDineoutSlots(restaurantId, 2, lat, lng);
+        const parsed = parseDineoutSlots(slotsText);
         setStep("slots", "done");
-        setSlots(list.slice(0, 6));
+        setSlots(parsed);
         setPhase("select-slot");
       } catch (err) {
         setErrorMsg((err as Error).message || "Could not fetch slots");
@@ -266,25 +272,9 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
     }
   };
 
-  const handleSlotSelect = async (slot: Record<string, unknown>) => {
-    if (!selectedRestaurant) return;
-    appendStep({ id: "book", label: "Booking your table", status: "loading" });
-    setPhase("running");
-    try {
-      await mcp.bookDineoutTable(
-        (selectedRestaurant.id || selectedRestaurant.restaurantId) as string,
-        (slot.id || slot.slotId) as string,
-        2
-      );
-      setStep("book", "done");
-      const rName = (selectedRestaurant.name || selectedRestaurant.restaurantName || "restaurant") as string;
-      const slotLabel = (slot.time || slot.label || slot.startTime || "your slot") as string;
-      setSuccessMsg(`Table booked at ${rName} for ${slotLabel}!`);
-      setPhase("success");
-    } catch (err) {
-      setErrorMsg((err as Error).message || "Booking failed");
-      setPhase("error");
-    }
+  const handleSlotSelect = (_slot: Record<string, unknown>) => {
+    window.open("https://www.swiggy.com/dineout", "_blank");
+    onClose();
   };
 
   const handleCheckout = async () => {
@@ -489,9 +479,15 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
                           {(r.name || r.restaurantName || "Restaurant") as string}
                         </p>
                         <p className="text-xs text-swiggy-gray mt-0.5">
-                          {(r.cuisine || r.cuisineType || "") as string}
-                          {r.rating ? ` · ★ ${r.rating}` : ""}
-                          {r.deliveryTime ? ` · ${r.deliveryTime} min` : ""}
+                          {Array.isArray(r.cuisine)
+                            ? (r.cuisine as string[]).join(", ")
+                            : (r.cuisine || r.cuisineType || "") as string}
+                          {r.rating
+                            ? ` · ★ ${typeof r.rating === "object"
+                                ? (r.rating as Record<string, unknown>).value
+                                : r.rating}`
+                            : ""}
+                          {r.costForTwo ? ` · ${r.costForTwo}` : r.deliveryTime ? ` · ${r.deliveryTime} min` : ""}
                         </p>
                       </div>
                       <span className="text-swiggy-orange font-bold text-lg">
@@ -508,16 +504,19 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
           {phase === "select-slot" && (
             <div className="mt-2">
               <p className="text-xs font-bold text-swiggy-gray uppercase tracking-widest mb-3">
-                Pick a time slot
+                Pick a slot - opens Swiggy to confirm
               </p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {slots.map((slot, i) => (
                   <button
                     key={i}
                     onClick={() => handleSlotSelect(slot)}
-                    className="py-3 bg-swiggy-light-gray rounded-2xl text-sm font-bold text-swiggy-dark border border-swiggy-border active:bg-swiggy-border transition-colors"
+                    className="text-left p-3 bg-swiggy-light-gray rounded-2xl border border-swiggy-border active:bg-swiggy-border transition-colors"
                   >
-                    {(slot.time || slot.label || slot.startTime || `Slot ${i + 1}`) as string}
+                    <p className="text-xs font-extrabold text-swiggy-dark">
+                      {slot.dayLabel as string} · {slot.meal as string}
+                    </p>
+                    <p className="text-xs text-swiggy-gray mt-0.5">{slot.timeRange as string}</p>
                   </button>
                 ))}
               </div>
@@ -574,6 +573,27 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
       </div>
     </div>
   );
+}
+
+function parseDineoutSlots(text: string): Record<string, unknown>[] {
+  const result: Record<string, unknown>[] = [];
+  const today = new Date().toISOString().split("T")[0];
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+  for (const line of text.split("\n")) {
+    const dateMatch = line.match(/(\d{4}-\d{2}-\d{2}):\s*(.+)/);
+    if (!dateMatch) continue;
+    const date = dateMatch[1];
+    const dayLabel =
+      date === today ? "Today" :
+      date === tomorrow ? "Tomorrow" :
+      new Date(date).toLocaleDateString("en-IN", { weekday: "short", month: "short", day: "numeric" });
+    for (const seg of dateMatch[2].split(";")) {
+      const m = seg.trim().match(/(\w+)\s*\(([^,)]+)/);
+      if (!m) continue;
+      result.push({ id: `${date}-${m[1].toLowerCase()}`, dayLabel, meal: m[1], timeRange: m[2].trim() });
+    }
+  }
+  return result.slice(0, 6);
 }
 
 function Spinner() {

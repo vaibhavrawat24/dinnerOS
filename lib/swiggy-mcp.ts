@@ -65,34 +65,47 @@ export async function callMCP(
 
 const ADDR_ID_KEY = "dinnerOS_selectedAddressId";
 const ADDR_LABEL_KEY = "dinnerOS_selectedAddressLabel";
+const ADDR_LAT_KEY = "dinnerOS_selectedAddressLat";
+const ADDR_LNG_KEY = "dinnerOS_selectedAddressLng";
 
 export interface SwiggyAddress {
   id: string;
   label: string;
   addressText: string;
+  lat?: number;
+  lng?: number;
 }
 
 export function getSavedAddress(): SwiggyAddress | null {
   if (typeof window === "undefined") return null;
   const id = localStorage.getItem(ADDR_ID_KEY);
   const label = localStorage.getItem(ADDR_LABEL_KEY);
-  // "Address" is the old broken default — clear it and force re-pick
   if (!id || !label || label === "Address") {
     if (id) clearSavedAddress();
     return null;
   }
-  return { id, label, addressText: "" };
+  const lat = parseFloat(localStorage.getItem(ADDR_LAT_KEY) ?? "");
+  const lng = parseFloat(localStorage.getItem(ADDR_LNG_KEY) ?? "");
+  return {
+    id, label, addressText: "",
+    ...(isFinite(lat) ? { lat } : {}),
+    ...(isFinite(lng) ? { lng } : {}),
+  };
 }
 
 export function saveAddress(addr: SwiggyAddress): void {
   localStorage.setItem(ADDR_ID_KEY, addr.id);
   localStorage.setItem(ADDR_LABEL_KEY, addr.label);
+  if (addr.lat != null) localStorage.setItem(ADDR_LAT_KEY, String(addr.lat));
+  if (addr.lng != null) localStorage.setItem(ADDR_LNG_KEY, String(addr.lng));
   window.dispatchEvent(new Event("dinnerOS:addressChanged"));
 }
 
 export function clearSavedAddress(): void {
   localStorage.removeItem(ADDR_ID_KEY);
   localStorage.removeItem(ADDR_LABEL_KEY);
+  localStorage.removeItem(ADDR_LAT_KEY);
+  localStorage.removeItem(ADDR_LNG_KEY);
 }
 
 function parseAddressText(text: string): SwiggyAddress[] {
@@ -113,11 +126,17 @@ export async function getDeliveryAddresses(): Promise<SwiggyAddress[]> {
     if (list.length > 0) {
       return list
         .filter((a) => a.id)
-        .map((a) => ({
-          id: a.id as string,
-          label: ((a.addressTag ?? a.addressCategory ?? "Address") as string),
-          addressText: (a.addressLine as string) ?? "",
-        }));
+        .map((a) => {
+          const lat = Number(a.latitude ?? a.lat);
+          const lng = Number(a.longitude ?? a.lng);
+          return {
+            id: a.id as string,
+            label: ((a.addressTag ?? a.addressCategory ?? "Address") as string),
+            addressText: (a.addressLine as string) ?? "",
+            ...(isFinite(lat) ? { lat } : {}),
+            ...(isFinite(lng) ? { lng } : {}),
+          };
+        });
     }
   }
 
@@ -185,9 +204,24 @@ export async function searchDineoutRestaurants(
 
 export async function getDineoutSlots(
   restaurantId: string,
-  partySize = 2
-): Promise<unknown> {
-  return callMCP("dineout", "get_available_slots", { restaurantId, partySize });
+  partySize = 2,
+  lat?: number,
+  lng?: number
+): Promise<string> {
+  const date = new Date().toISOString().split("T")[0];
+  const result = await callMCP(
+    "dineout",
+    "get_available_slots",
+    {
+      restaurantId,
+      partySize,
+      date,
+      ...(lat != null ? { latitude: lat } : {}),
+      ...(lng != null ? { longitude: lng } : {}),
+    },
+    { preferText: true }
+  );
+  return typeof result === "string" ? result : JSON.stringify(result);
 }
 
 export async function bookDineoutTable(
