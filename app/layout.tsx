@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "DinnerOS — AI Dinner Decisions",
+  title: "DinnerOS - AI Dinner Decisions",
   description: "Stop asking what to eat. Let AI decide.",
   icons: {
     icon: "/icon.svg",

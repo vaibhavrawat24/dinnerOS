@@ -55,8 +55,8 @@ TONIGHT'S CONTEXT:
 RULES:
 1. Prioritize using items expiring within 2 days — mention this in reasoning
 2. Never suggest a dish eaten in the last 3 days
-3. If energy is "tired", Option 1 should be very fast (<15 min) or suggest ordering
-4. Option 1 (cook) must use at least 2 pantry items if pantry is not empty
+3. If energy is "tired", Option 1 should be very fast (<15 min) or ordering-focused
+4. Option 1 is ALWAYS type "cook" — suggest a real Indian dinner dish regardless of pantry state. If pantry is empty, list ALL needed ingredients in "missing" (they will be ordered via Instamart). "usesPantry" should be [] if pantry is empty. NEVER use "not feasible" or similar as a dish name.
 5. Option 2 must be a realistic Swiggy food delivery suggestion within the budget
 6. Option 3 must be a dine-out suggestion at a nearby restaurant
 7. All suggestions should be Indian cuisine appropriate for dinner
