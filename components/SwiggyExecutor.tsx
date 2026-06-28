@@ -187,22 +187,14 @@ export default function SwiggyExecutor({ option, onClose }: Props) {
   const runDineoutFlow = useCallback(
     async (opt: DineoutOption) => {
       setSteps([
-        { id: "loc", label: "Getting your location", status: "loading" },
-        { id: "search", label: `Finding "${opt.searchQuery}"`, status: "pending" },
+        { id: "search", label: `Finding "${opt.searchQuery}"`, status: "loading" },
         { id: "select", label: "Pick a restaurant", status: "pending" },
       ]);
 
       try {
-        const locs = await mcp.callMCP("dineout", "get_saved_locations", {});
-        const locList = Array.isArray(locs)
-          ? locs
-          : ((locs as Record<string, unknown>)?.locations as unknown[]) || [];
-        const loc = locList[0] as Record<string, unknown> | undefined;
-        const locationId = (loc?.id || loc?.locationId || "") as string;
-        setStep("loc", "done");
-
-        setStep("search", "loading");
-        const results = await mcp.searchDineoutRestaurants(opt.searchQuery, locationId);
+        const saved = mcp.getSavedAddress();
+        if (!saved) throw new Error("No delivery address saved — please reconnect Swiggy.");
+        const results = await mcp.searchDineoutRestaurants(opt.searchQuery, saved.id);
         const list = (
           Array.isArray(results)
             ? results

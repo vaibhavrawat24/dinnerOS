@@ -16,7 +16,8 @@ export async function listMCPTools(server: MCPServer): Promise<unknown> {
 export async function callMCP(
   server: MCPServer,
   tool: string,
-  params: Record<string, unknown> = {}
+  params: Record<string, unknown> = {},
+  opts: { preferText?: boolean } = {}
 ): Promise<unknown> {
   const token = getToken();
   if (!token) throw new Error("Not authenticated with Swiggy");
@@ -42,13 +43,15 @@ export async function callMCP(
     throw new Error(errText.split("\n")[0].trim());
   }
 
-  // Prefer structuredContent when non-empty — it has machine-readable IDs
-  const structured = data?.result?.structuredContent;
-  if (structured && typeof structured === "object" && Object.keys(structured).length > 0) {
-    return structured;
+  // Prefer structuredContent when non-empty (unless caller wants raw text)
+  if (!opts.preferText) {
+    const structured = data?.result?.structuredContent;
+    if (structured && typeof structured === "object" && Object.keys(structured).length > 0) {
+      return structured;
+    }
   }
 
-  // Fall back to text content
+  // Text content
   if (data?.result?.content?.[0]?.type === "text") {
     const text = data.result.content[0].text as string;
     try { return JSON.parse(text); }
@@ -72,13 +75,19 @@ export interface SwiggyAddress {
 export function getSavedAddress(): SwiggyAddress | null {
   if (typeof window === "undefined") return null;
   const id = localStorage.getItem(ADDR_ID_KEY);
-  if (!id) return null;
-  return { id, label: localStorage.getItem(ADDR_LABEL_KEY) ?? "Address", addressText: "" };
+  const label = localStorage.getItem(ADDR_LABEL_KEY);
+  // "Address" is the old broken default — clear it and force re-pick
+  if (!id || !label || label === "Address") {
+    if (id) clearSavedAddress();
+    return null;
+  }
+  return { id, label, addressText: "" };
 }
 
 export function saveAddress(addr: SwiggyAddress): void {
   localStorage.setItem(ADDR_ID_KEY, addr.id);
   localStorage.setItem(ADDR_LABEL_KEY, addr.label);
+  window.dispatchEvent(new Event("dinnerOS:addressChanged"));
 }
 
 export function clearSavedAddress(): void {
@@ -98,20 +107,21 @@ function parseAddressText(text: string): SwiggyAddress[] {
 export async function getDeliveryAddresses(): Promise<SwiggyAddress[]> {
   const result = await callMCP("food", "get_addresses", {});
 
-  const normalize = (a: Record<string, unknown>): SwiggyAddress => ({
-    id: ((a.id ?? a.addressId ?? a.addressid ?? "") as string),
-    label: ((a.label ?? a.name ?? a.tag ?? "Address") as string),
-    addressText: ((a.address ?? a.fullAddress ?? a.addressLine ?? "") as string),
-  });
-
-  if (Array.isArray(result)) {
-    return (result as Record<string, unknown>[]).map(normalize).filter(a => a.id);
-  }
+  // Structured content has addressTag (user nickname) and addressLine
   if (result && typeof result === "object") {
-    const obj = result as Record<string, unknown>;
-    const list = (obj.addresses ?? obj.data) as Record<string, unknown>[] | undefined;
-    if (Array.isArray(list) && list.length > 0) return list.map(normalize).filter(a => a.id);
+    const list = ((result as Record<string, unknown>).addresses as Record<string, unknown>[]) ?? [];
+    if (list.length > 0) {
+      return list
+        .filter((a) => a.id)
+        .map((a) => ({
+          id: a.id as string,
+          label: ((a.addressTag ?? a.addressCategory ?? "Address") as string),
+          addressText: (a.addressLine as string) ?? "",
+        }));
+    }
   }
+
+  // Fallback: parse text
   if (typeof result === "string") return parseAddressText(result);
   return [];
 }
@@ -165,11 +175,11 @@ export async function checkoutInstamart(addressId: string): Promise<unknown> {
 
 export async function searchDineoutRestaurants(
   query: string,
-  locationId: string
+  addressId: string
 ): Promise<unknown> {
   return callMCP("dineout", "search_restaurants_dineout", {
     query,
-    locationId,
+    addressId,
   });
 }
 

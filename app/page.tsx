@@ -17,6 +17,7 @@ import type { PantryItem, UserContext, DinnerDecision, DinnerOption } from "@/li
 import OptionCard from "@/components/OptionCard";
 import ContextSheet from "@/components/ContextSheet";
 import SwiggyExecutor from "@/components/SwiggyExecutor";
+import AddressBar from "@/components/AddressBar";
 
 type PageState = "loading" | "context-needed" | "generating" | "ready";
 
@@ -90,13 +91,6 @@ export default function Home() {
     setState("context-needed");
   };
 
-  const greeting = () => {
-    const h = new Date().getHours();
-    if (h < 12) return "Good morning";
-    if (h < 17) return "Good afternoon";
-    return "Good evening";
-  };
-
   return (
     <main className="min-h-screen bg-swiggy-light-gray pb-10">
       {/* Header */}
@@ -106,7 +100,7 @@ export default function Home() {
             <h1 className="text-xl font-extrabold text-swiggy-dark tracking-tight leading-none">
               dinner<span className="text-swiggy-orange">OS</span>
             </h1>
-            <p className="text-xs text-swiggy-gray mt-0.5">{greeting()}</p>
+            <AddressBar />
           </div>
           <Link
             href="/pantry"
