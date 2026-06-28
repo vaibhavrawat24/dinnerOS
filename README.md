@@ -2,7 +2,7 @@
 
 > Stop asking *"what should I eat tonight?"* - let AI decide, then order it in one tap.
 
-DinnerOS is an AI-powered dinner decision app built on top of **Swiggy's MCP (Model Context Protocol)**. It takes your pantry inventory, mood, time, and budget, uses Claude AI to generate a ranked dinner recommendation, and then executes it via Swiggy - food delivery, Instamart grocery delivery, or Dineout table booking - without the user ever opening the Swiggy app.
+DinnerOS is an AI-powered dinner decision app built on top of **Swiggy's MCP (Model Context Protocol)**. It takes your pantry inventory, mood, time, and budget, uses AI to generate a ranked dinner recommendation, and then executes it via Swiggy - food delivery, Instamart grocery delivery, or Dineout table booking - without the user ever opening the Swiggy app.
 
 ---
 
